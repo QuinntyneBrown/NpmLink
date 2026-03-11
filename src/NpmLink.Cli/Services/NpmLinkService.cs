@@ -65,6 +65,48 @@ public class NpmLinkService : INpmLinkService
         return 0;
     }
 
+    public async Task<int> UnlinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
+    {
+        var resolvedWorkspacePath = Path.GetFullPath(workspacePath);
+        var resolvedLibrarySourcePath = Path.GetFullPath(librarySourcePath);
+
+        if (!Directory.Exists(resolvedWorkspacePath))
+        {
+            Console.Error.WriteLine($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}");
+            return 1;
+        }
+
+        if (!ValidateAngularWorkspace(resolvedWorkspacePath))
+        {
+            Console.Error.WriteLine($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}");
+            return 1;
+        }
+
+        var (npmCommand, unlinkArgs, unlinkInWorkspaceArgs) = GetNpmUnlinkCommands(libraryName);
+
+        Console.WriteLine($"Step 1: Running 'npm unlink {libraryName}' in Angular workspace: {resolvedWorkspacePath}");
+        var unlinkInWorkspaceExitCode = await _processRunner.RunAsync(npmCommand, unlinkInWorkspaceArgs, resolvedWorkspacePath, cancellationToken);
+        if (unlinkInWorkspaceExitCode != 0)
+        {
+            Console.Error.WriteLine($"Error: 'npm unlink {libraryName}' in Angular workspace failed.");
+            return unlinkInWorkspaceExitCode;
+        }
+
+        Console.WriteLine($"Step 2: Running 'npm unlink' in library source: {resolvedLibrarySourcePath}");
+        var unlinkExitCode = await _processRunner.RunAsync(npmCommand, unlinkArgs, resolvedLibrarySourcePath, cancellationToken);
+        if (unlinkExitCode != 0)
+        {
+            Console.Error.WriteLine("Error: 'npm unlink' in library source failed.");
+            return unlinkExitCode;
+        }
+
+        Console.WriteLine("Step 3: Removing tsconfig.json path mappings...");
+        RemoveTsconfigPaths(resolvedWorkspacePath, libraryName);
+
+        Console.WriteLine($"Successfully unlinked '{libraryName}'");
+        return 0;
+    }
+
     private static bool ValidateAngularWorkspace(string workspacePath)
     {
         return File.Exists(Path.Combine(workspacePath, "angular.json"));
@@ -96,6 +138,49 @@ public class NpmLinkService : INpmLinkService
         var linkArgs = isWindows ? "/c npm link" : "link";
         var linkInWorkspaceArgs = isWindows ? $"/c npm link {libraryName}" : $"link {libraryName}";
         return (npmCommand, linkArgs, linkInWorkspaceArgs);
+    }
+
+    private static (string npmCommand, string unlinkArgs, string unlinkInWorkspaceArgs) GetNpmUnlinkCommands(string libraryName)
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var npmCommand = isWindows ? "cmd" : "npm";
+        var unlinkArgs = isWindows ? "/c npm unlink" : "unlink";
+        var unlinkInWorkspaceArgs = isWindows ? $"/c npm unlink {libraryName}" : $"unlink {libraryName}";
+        return (npmCommand, unlinkArgs, unlinkInWorkspaceArgs);
+    }
+
+    private static void RemoveTsconfigPaths(string workspacePath, string libraryName)
+    {
+        var tsconfigPath = Path.Combine(workspacePath, "tsconfig.json");
+        if (!File.Exists(tsconfigPath))
+        {
+            Console.WriteLine("No tsconfig.json found in workspace root; skipping path mapping removal.");
+            return;
+        }
+
+        try
+        {
+            var content = File.ReadAllText(tsconfigPath);
+            var tsconfig = JsonNode.Parse(content, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
+
+            if (tsconfig is null)
+                return;
+
+            var paths = tsconfig["compilerOptions"]?["paths"]?.AsObject();
+            if (paths is null)
+                return;
+
+            paths.Remove(libraryName);
+            paths.Remove($"{libraryName}/*");
+
+            var updatedContent = tsconfig.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(tsconfigPath, updatedContent);
+            Console.WriteLine($"Removed tsconfig.json path mappings for '{libraryName}'.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not update tsconfig.json paths: {ex.Message}");
+        }
     }
 
     private static void UpdateTsconfigPaths(string workspacePath, string libraryName, string librarySourcePath)

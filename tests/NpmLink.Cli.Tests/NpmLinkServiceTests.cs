@@ -248,4 +248,205 @@ public class NpmLinkServiceTests : IDisposable
         var expectedRelative = Path.GetRelativePath(_workspacePath, _librarySourcePath).Replace('\\', '/');
         Assert.Equal(expectedRelative, exactEntries![0]!.GetValue<string>());
     }
+
+    // ── Unlink: Validation tests ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task UnlinkAsync_MissingWorkspacePath_ReturnsOne()
+    {
+        var runner = new FakeProcessRunner();
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(
+            Path.Combine(_tempRoot, "nonexistent"),
+            LibraryName,
+            _librarySourcePath);
+
+        Assert.Equal(1, result);
+        Assert.Empty(runner.Invocations);
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_MissingAngularJson_ReturnsOne()
+    {
+        // No angular.json created in workspace
+        var runner = new FakeProcessRunner();
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(1, result);
+        Assert.Empty(runner.Invocations);
+    }
+
+    // ── Unlink: Process invocation tests ─────────────────────────────────────
+
+    [Fact]
+    public async Task UnlinkAsync_ValidInputs_RunsNpmUnlinkInWorkspaceFirst()
+    {
+        CreateAngularJson();
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(2, runner.Invocations.Count);
+        var (_, firstArgs, firstDir) = runner.Invocations[0];
+        Assert.Contains("unlink", firstArgs);
+        Assert.Contains(LibraryName, firstArgs);
+        Assert.Equal(Path.GetFullPath(_workspacePath), firstDir);
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_ValidInputs_RunsNpmUnlinkInLibrarySourceSecond()
+    {
+        CreateAngularJson();
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(2, runner.Invocations.Count);
+        var (_, secondArgs, secondDir) = runner.Invocations[1];
+        Assert.Contains("unlink", secondArgs);
+        Assert.Equal(Path.GetFullPath(_librarySourcePath), secondDir);
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_ValidInputs_ReturnsZeroOnSuccess()
+    {
+        CreateAngularJson();
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_FirstNpmUnlinkFails_StopsAndPropagatesExitCode()
+    {
+        CreateAngularJson();
+        var runner = new FakeProcessRunner(2); // first npm unlink fails with exit code 2
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(2, result);
+        Assert.Single(runner.Invocations); // second call should not happen
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_SecondNpmUnlinkFails_PropagatesExitCode()
+    {
+        CreateAngularJson();
+        var runner = new FakeProcessRunner(0, 3); // second npm unlink fails with exit code 3
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(3, result);
+    }
+
+    // ── Unlink: tsconfig.json path removal tests ─────────────────────────────
+
+    [Fact]
+    public async Task UnlinkAsync_WithTsconfig_RemovesLibraryPaths()
+    {
+        CreateAngularJson();
+
+        var tsconfigPath = Path.Combine(_workspacePath, "tsconfig.json");
+        var tsconfigContent = JsonSerializer.Serialize(new
+        {
+            compilerOptions = new
+            {
+                paths = new Dictionary<string, string[]>
+                {
+                    [LibraryName] = new[] { "../my-lib" },
+                    [$"{LibraryName}/*"] = new[] { "../my-lib/*" },
+                    ["@other/lib"] = new[] { "../other-lib" },
+                }
+            }
+        });
+        File.WriteAllText(tsconfigPath, tsconfigContent);
+
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        var updatedContent = File.ReadAllText(tsconfigPath);
+        var tsconfig = JsonNode.Parse(updatedContent);
+        var paths = tsconfig?["compilerOptions"]?["paths"]?.AsObject();
+
+        Assert.NotNull(paths);
+        Assert.False(paths.ContainsKey(LibraryName), $"Expected '{LibraryName}' key to be removed from paths");
+        Assert.False(paths.ContainsKey($"{LibraryName}/*"), $"Expected '{LibraryName}/*' key to be removed from paths");
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_WithTsconfig_PreservesOtherPaths()
+    {
+        CreateAngularJson();
+
+        var tsconfigPath = Path.Combine(_workspacePath, "tsconfig.json");
+        var tsconfigContent = JsonSerializer.Serialize(new
+        {
+            compilerOptions = new
+            {
+                paths = new Dictionary<string, string[]>
+                {
+                    [LibraryName] = new[] { "../my-lib" },
+                    [$"{LibraryName}/*"] = new[] { "../my-lib/*" },
+                    ["@other/lib"] = new[] { "../other-lib" },
+                    ["@other/lib/*"] = new[] { "../other-lib/*" },
+                }
+            }
+        });
+        File.WriteAllText(tsconfigPath, tsconfigContent);
+
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        var updatedContent = File.ReadAllText(tsconfigPath);
+        var tsconfig = JsonNode.Parse(updatedContent);
+        var paths = tsconfig?["compilerOptions"]?["paths"]?.AsObject();
+
+        Assert.NotNull(paths);
+        Assert.True(paths.ContainsKey("@other/lib"), "Expected '@other/lib' key to be preserved");
+        Assert.True(paths.ContainsKey("@other/lib/*"), "Expected '@other/lib/*' key to be preserved");
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_WithoutTsconfig_SucceedsWithoutError()
+    {
+        CreateAngularJson();
+        // No tsconfig.json - should still succeed
+
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public async Task UnlinkAsync_TsconfigWithoutPathKeys_SucceedsWithoutError()
+    {
+        CreateAngularJson();
+
+        var tsconfigPath = Path.Combine(_workspacePath, "tsconfig.json");
+        File.WriteAllText(tsconfigPath, """{"compilerOptions": {"paths": {}}}""");
+
+        var runner = new FakeProcessRunner(0, 0);
+        var service = new NpmLinkService(runner);
+
+        var result = await service.UnlinkAsync(_workspacePath, LibraryName, _librarySourcePath);
+
+        Assert.Equal(0, result);
+    }
 }

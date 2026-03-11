@@ -35,6 +35,41 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     return await service.LinkAsync(workspace, library, source, cancellationToken);
 });
 
+var unlinkWorkspaceOption = new Option<string>("--workspace", "-w")
+{
+    Description = "Path to the Angular workspace (directory containing angular.json).",
+    Required = true,
+};
+
+var unlinkLibraryNameOption = new Option<string>("--library", "-l")
+{
+    Description = "Name of the library as it appears in package.json (e.g. @my-org/my-lib).",
+    Required = true,
+};
+
+var unlinkLibrarySourceOption = new Option<string>("--source", "-s")
+{
+    Description = "Path to the library source project directory (where its package.json lives).",
+    Required = true,
+};
+
+var unlinkCommand = new Command("unlink", "Unlinks a previously linked local library from an Angular workspace.");
+unlinkCommand.Add(unlinkWorkspaceOption);
+unlinkCommand.Add(unlinkLibraryNameOption);
+unlinkCommand.Add(unlinkLibrarySourceOption);
+
+unlinkCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
+{
+    var workspace = parseResult.GetValue(unlinkWorkspaceOption)!;
+    var library = parseResult.GetValue(unlinkLibraryNameOption)!;
+    var source = parseResult.GetValue(unlinkLibrarySourceOption)!;
+
+    var service = new NpmLinkService(new ProcessRunner());
+    return await service.UnlinkAsync(workspace, library, source, cancellationToken);
+});
+
+rootCommand.Add(unlinkCommand);
+
 // Disable response file handling so that scoped package names like @my-org/my-lib
 // are not misinterpreted as response files.
 var parserConfig = new ParserConfiguration { ResponseFileTokenReplacer = null };
