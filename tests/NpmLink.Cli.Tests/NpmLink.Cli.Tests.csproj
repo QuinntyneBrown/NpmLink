@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NpmLink\NpmLink.csproj" />
+    <ProjectReference Include="..\..\src\NpmLink.Cli\NpmLink.Cli.csproj" />
   </ItemGroup>
 
 </Project>

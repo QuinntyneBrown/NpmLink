@@ -1,0 +1,51 @@
+@startuml cli-class
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title CLI Command Parsing - Class Diagram
+
+package "System.CommandLine" #LightGray {
+    class RootCommand {
+        +Name : string
+        +Description : string
+        +Add(option : Option) : void
+        +SetAction(action : Action) : void
+    }
+
+    class Option<T> {
+        +Name : string
+        +Description : string
+        +Required : bool
+        +Aliases : string[]
+    }
+
+    class ParseResult {
+        +GetValue<T>(option : Option<T>) : T
+    }
+}
+
+package "NpmLink" {
+    class Program {
+        {static} +Main(args : string[]) : Task<int>
+        --
+        Creates RootCommand with options
+        Configures action handler
+        Disables response file handling
+    }
+}
+
+package "NpmLink.Services" {
+    interface INpmLinkService {
+        +LinkAsync(workspacePath, libraryName, librarySourcePath, ct) : Task<int>
+    }
+
+    class ProcessRunner
+}
+
+Program ..> RootCommand : creates
+Program ..> "Option<string>" : creates 3 options
+Program ..> ParseResult : reads values
+Program ..> INpmLinkService : creates & invokes
+Program ..> ProcessRunner : creates
+
+@enduml

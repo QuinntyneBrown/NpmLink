@@ -1,6 +1,6 @@
-using NpmLink.Services;
+using NpmLink.Cli.Services;
 
-namespace NpmLink.Tests;
+namespace NpmLink.Cli.Tests;
 
 /// <summary>
 /// Fake implementation of IProcessRunner that records calls and returns configurable exit codes.

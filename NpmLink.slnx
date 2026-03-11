@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/NpmLink/NpmLink.csproj" />
+    <Project Path="src/NpmLink.Cli/NpmLink.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/NpmLink.Tests/NpmLink.Tests.csproj" />
+    <Project Path="tests/NpmLink.Cli.Tests/NpmLink.Cli.Tests.csproj" />
   </Folder>
 </Solution>

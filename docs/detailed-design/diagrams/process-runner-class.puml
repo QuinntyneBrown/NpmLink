@@ -1,0 +1,55 @@
+@startuml process-runner-class
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title Process Execution - Class Diagram
+
+package "NpmLink.Services" {
+    interface IProcessRunner {
+        +RunAsync(command : string,\n  arguments : string,\n  workingDirectory : string,\n  ct : CancellationToken) : Task<int>
+    }
+
+    class ProcessRunner {
+        +RunAsync(command : string,\n  arguments : string,\n  workingDirectory : string,\n  ct : CancellationToken) : Task<int>
+        --
+        Redirects stdout/stderr
+        Cross-platform cmd handling
+    }
+}
+
+package "System.Diagnostics" #LightGray {
+    class Process {
+        +StartInfo : ProcessStartInfo
+        +Start() : bool
+        +WaitForExitAsync(ct) : Task
+        +StandardOutput : StreamReader
+        +StandardError : StreamReader
+    }
+
+    class ProcessStartInfo {
+        +FileName : string
+        +Arguments : string
+        +WorkingDirectory : string
+        +RedirectStandardOutput : bool
+        +RedirectStandardError : bool
+        +UseShellExecute : bool
+    }
+}
+
+package "NpmLink.Tests" #LightYellow {
+    class FakeProcessRunner {
+        +ExitCodes : Queue<int>
+        +Invocations : List<(string, string, string)>
+        +RunAsync(...) : Task<int>
+        --
+        Records invocations
+        Returns queued exit codes
+    }
+}
+
+IProcessRunner <|.. ProcessRunner : implements
+IProcessRunner <|.. FakeProcessRunner : implements
+ProcessRunner --> Process : creates & manages
+Process --> ProcessStartInfo : configures
+
+@enduml

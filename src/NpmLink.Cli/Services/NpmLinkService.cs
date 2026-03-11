@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NpmLink.Services;
+namespace NpmLink.Cli.Services;
 
 public class NpmLinkService : INpmLinkService
 {

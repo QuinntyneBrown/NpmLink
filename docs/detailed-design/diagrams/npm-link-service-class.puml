@@ -1,0 +1,31 @@
+@startuml npm-link-service-class
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title Npm Link Service - Class Diagram
+
+package "NpmLink.Services" {
+    interface INpmLinkService {
+        +LinkAsync(workspacePath : string, libraryName : string,\n  librarySourcePath : string,\n  ct : CancellationToken) : Task<int>
+    }
+
+    class NpmLinkService {
+        -_processRunner : IProcessRunner
+        +NpmLinkService(processRunner : IProcessRunner)
+        +LinkAsync(workspacePath, libraryName,\n  librarySourcePath, ct) : Task<int>
+        --
+        {static} -ValidateAngularWorkspace(path) : bool
+        {static} -ValidateLibraryPackageJson(path, name) : bool
+        {static} -GetNpmCommands(libraryName) : (string, string)[]
+        {static} -UpdateTsconfigPaths(workspace, lib, src) : void
+    }
+
+    interface IProcessRunner {
+        +RunAsync(command : string, arguments : string,\n  workingDirectory : string,\n  ct : CancellationToken) : Task<int>
+    }
+
+    INpmLinkService <|.. NpmLinkService : implements
+    NpmLinkService --> IProcessRunner : uses
+}
+
+@enduml

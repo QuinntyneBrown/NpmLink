@@ -1,0 +1,48 @@
+@startuml cli-sequence
+title CLI Command Parsing - Sequence Diagram
+
+actor User
+participant "Program" as P
+participant "RootCommand" as RC
+participant "ParseResult" as PR
+participant "NpmLinkService" as NLS
+
+User -> P : NpmLink -w <path> -l <lib> -s <src>
+activate P
+
+P -> RC : new RootCommand(description)
+P -> RC : Add(workspaceOption)
+P -> RC : Add(libraryOption)
+P -> RC : Add(sourceOption)
+
+P -> RC : SetAction(handler)
+P -> RC : InvokeAsync(args)
+activate RC
+
+RC -> PR : Parse arguments
+activate PR
+RC <-- PR : ParseResult
+deactivate PR
+
+RC -> PR : GetValue(workspaceOption)
+RC <-- PR : workspacePath
+
+RC -> PR : GetValue(libraryOption)
+RC <-- PR : libraryName
+
+RC -> PR : GetValue(sourceOption)
+RC <-- PR : librarySourcePath
+
+RC -> NLS : new NpmLinkService(ProcessRunner)
+RC -> NLS : LinkAsync(workspace, library, source)
+activate NLS
+RC <-- NLS : exitCode
+deactivate NLS
+
+P <-- RC : exitCode
+deactivate RC
+
+User <-- P : exitCode
+deactivate P
+
+@enduml

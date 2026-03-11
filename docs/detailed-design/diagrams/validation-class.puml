@@ -1,0 +1,43 @@
+@startuml validation-class
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title Validation - Class Diagram
+
+package "NpmLink.Services" {
+    class NpmLinkService {
+        --Validation Methods--
+        {static} -ValidateAngularWorkspace(\n  workspacePath : string) : bool
+        {static} -ValidateLibraryPackageJson(\n  librarySourcePath : string,\n  libraryName : string) : bool
+    }
+}
+
+package "Validation Targets" #LightBlue {
+    class "angular.json" as AJ <<file>> {
+        Located in workspace root
+        Must exist for valid workspace
+    }
+
+    class "package.json" as PJ <<file>> {
+        Located in library source root
+        Must exist
+        "name" field must match libraryName
+    }
+
+    class "Workspace Directory" as WD <<directory>> {
+        Must be a valid path
+        Must exist on filesystem
+    }
+
+    class "Library Source Directory" as LD <<directory>> {
+        Must be a valid path
+        Must exist on filesystem
+    }
+}
+
+NpmLinkService ..> AJ : validates existence
+NpmLinkService ..> PJ : validates existence\n& name field
+NpmLinkService ..> WD : validates existence
+NpmLinkService ..> LD : validates existence
+
+@enduml

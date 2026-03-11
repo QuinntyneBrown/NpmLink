@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using NpmLink.Services;
+using NpmLink.Cli.Services;
 
-namespace NpmLink.Tests;
+namespace NpmLink.Cli.Tests;
 
 public class NpmLinkServiceTests : IDisposable
 {

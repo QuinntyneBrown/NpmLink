@@ -1,0 +1,40 @@
+@startuml process-runner-sequence
+title Process Execution - Sequence Diagram
+
+participant "NpmLinkService" as NLS
+participant "ProcessRunner" as PR
+participant "Process" as P
+participant "Console" as CON
+
+NLS -> PR : RunAsync(command, args, workDir, ct)
+activate PR
+
+PR -> PR : Determine platform\n(Windows vs Unix)
+
+alt Windows
+    PR -> PR : FileName = "cmd"\nArguments = "/c {command} {args}"
+else Unix
+    PR -> PR : FileName = command\nArguments = args
+end
+
+PR -> P : new Process()
+PR -> P : Configure StartInfo\n(RedirectOutput, RedirectError,\nUseShellExecute=false)
+
+PR -> P : Start()
+activate P
+
+par Read output streams
+    P -> CON : StandardOutput -> Console.Out
+    P -> CON : StandardError -> Console.Error
+end
+
+PR -> P : WaitForExitAsync(ct)
+PR <-- P : process completed
+deactivate P
+
+PR -> PR : Get ExitCode
+
+NLS <-- PR : exitCode
+deactivate PR
+
+@enduml

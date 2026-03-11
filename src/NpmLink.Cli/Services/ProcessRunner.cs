@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace NpmLink.Services;
+namespace NpmLink.Cli.Services;
 
 public class ProcessRunner : IProcessRunner
 {

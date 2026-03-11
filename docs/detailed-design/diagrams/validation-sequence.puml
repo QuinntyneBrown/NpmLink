@@ -1,0 +1,55 @@
+@startuml validation-sequence
+title Validation - Sequence Diagram
+
+participant "NpmLinkService" as NLS
+participant "FileSystem" as FS
+participant "JsonParser" as JP
+
+== Path Resolution ==
+NLS -> NLS : Path.GetFullPath(workspacePath)
+NLS -> NLS : Path.GetFullPath(librarySourcePath)
+
+== Directory Validation ==
+NLS -> FS : Directory.Exists(workspacePath)
+alt does not exist
+    NLS -> NLS : Console.Error("workspace not found")
+    [<-- NLS : return 1
+end
+
+NLS -> FS : Directory.Exists(librarySourcePath)
+alt does not exist
+    NLS -> NLS : Console.Error("source not found")
+    [<-- NLS : return 1
+end
+
+== Angular Workspace Validation ==
+NLS -> FS : File.Exists(workspacePath/angular.json)
+alt does not exist
+    NLS -> NLS : Console.Error("not an Angular workspace")
+    [<-- NLS : return 1
+end
+
+== Library Package Validation ==
+NLS -> FS : File.Exists(librarySourcePath/package.json)
+alt does not exist
+    NLS -> NLS : Console.Error("package.json not found")
+    [<-- NLS : return 1
+end
+
+NLS -> FS : File.ReadAllText(package.json)
+NLS <-- FS : jsonContent
+
+NLS -> JP : JsonNode.Parse(jsonContent)
+NLS <-- JP : jsonNode
+
+NLS -> JP : jsonNode["name"]?.ToString()
+NLS <-- JP : packageName
+
+alt packageName != libraryName
+    NLS -> NLS : Console.Error("name mismatch")
+    [<-- NLS : return 1
+end
+
+[<-- NLS : validation passed, continue
+
+@enduml

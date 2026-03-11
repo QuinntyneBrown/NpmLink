@@ -1,4 +1,4 @@
-namespace NpmLink.Services;
+namespace NpmLink.Cli.Services;
 
 public interface IProcessRunner
 {

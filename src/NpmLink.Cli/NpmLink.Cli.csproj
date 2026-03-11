@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>npm-link</ToolCommandName>
+    <PackageId>NpmLink.Cli</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Links a local npm library into an Angular workspace for local development and debugging.</Description>
+    <Authors>QuinntyneBrown</Authors>
+    <PackageProjectUrl>https://github.com/QuinntyneBrown/NpmLink</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/QuinntyneBrown/NpmLink</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>npm;link;angular;dotnet-tool</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.2.26159.112" />
+  </ItemGroup>
+
+</Project>

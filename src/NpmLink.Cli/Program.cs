@@ -1,6 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
-using NpmLink.Services;
+using NpmLink.Cli.Services;
 
 var workspaceOption = new Option<string>("--workspace", "-w")
 {

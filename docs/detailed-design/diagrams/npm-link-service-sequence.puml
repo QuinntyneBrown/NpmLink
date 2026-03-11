@@ -1,0 +1,72 @@
+@startuml npm-link-service-sequence
+title Npm Link Service - LinkAsync Sequence Diagram
+
+participant "Caller" as C
+participant "NpmLinkService" as NLS
+participant "IProcessRunner" as PR
+participant "FileSystem" as FS
+
+C -> NLS : LinkAsync(workspace, library, source, ct)
+activate NLS
+
+== Path Validation ==
+NLS -> NLS : Resolve absolute paths
+NLS -> FS : Directory.Exists(workspacePath)
+NLS <-- FS : true/false
+
+alt workspace path missing
+    C <-- NLS : return 1
+end
+
+NLS -> FS : Directory.Exists(librarySourcePath)
+NLS <-- FS : true/false
+
+alt source path missing
+    C <-- NLS : return 1
+end
+
+== Workspace Validation ==
+NLS -> FS : File.Exists(angular.json)
+NLS <-- FS : true/false
+
+alt angular.json missing
+    C <-- NLS : return 1
+end
+
+== Library Validation ==
+NLS -> FS : File.Exists(package.json)
+NLS <-- FS : true/false
+
+alt package.json missing or name mismatch
+    C <-- NLS : return 1
+end
+
+== Step 1: Link Library Globally ==
+NLS -> PR : RunAsync("npm link", "", librarySourcePath)
+activate PR
+NLS <-- PR : exitCode
+deactivate PR
+
+alt exitCode != 0
+    C <-- NLS : return exitCode
+end
+
+== Step 2: Link in Workspace ==
+NLS -> PR : RunAsync("npm link", libraryName, workspacePath)
+activate PR
+NLS <-- PR : exitCode
+deactivate PR
+
+alt exitCode != 0
+    C <-- NLS : return exitCode
+end
+
+== Step 3: Update tsconfig.json ==
+NLS -> FS : Read tsconfig.json
+NLS -> NLS : Parse JSON, create path mappings
+NLS -> FS : Write updated tsconfig.json
+
+C <-- NLS : return 0
+deactivate NLS
+
+@enduml

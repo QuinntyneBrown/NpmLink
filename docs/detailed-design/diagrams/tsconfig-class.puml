@@ -1,0 +1,50 @@
+@startuml tsconfig-class
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title TSConfig Update - Class Diagram
+
+package "NpmLink.Services" {
+    class NpmLinkService {
+        --TSConfig Method--
+        {static} -UpdateTsconfigPaths(\n  workspacePath : string,\n  libraryName : string,\n  librarySourcePath : string) : void
+    }
+}
+
+package "System.Text.Json" #LightGray {
+    class JsonNode {
+        {static} +Parse(json, options) : JsonNode
+        +ToJsonString(options) : string
+    }
+
+    class JsonObject {
+        +Item[key] : JsonNode
+        +ContainsKey(key) : bool
+    }
+
+    class JsonArray {
+        +Add(value) : void
+    }
+}
+
+package "tsconfig.json Structure" #LightBlue {
+    class "tsconfig.json" as TS <<file>> {
+        compilerOptions : object
+    }
+
+    class "compilerOptions" as CO <<section>> {
+        paths : object
+    }
+
+    class "paths" as PA <<section>> {
+        "{libraryName}" : string[]
+        "{libraryName}/*" : string[]
+    }
+}
+
+NpmLinkService ..> TS : reads & writes
+NpmLinkService ..> JsonNode : parses JSON
+TS --> CO : contains
+CO --> PA : contains
+
+@enduml

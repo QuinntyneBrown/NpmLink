@@ -1,0 +1,46 @@
+@startuml tsconfig-sequence
+title TSConfig Path Update - Sequence Diagram
+
+participant "NpmLinkService" as NLS
+participant "FileSystem" as FS
+participant "JsonNode" as JN
+
+NLS -> FS : File.Exists(tsconfig.json)
+
+alt tsconfig.json does not exist
+    NLS -> NLS : Log warning
+    [<-- NLS : return (non-fatal)
+end
+
+NLS -> FS : File.ReadAllText(tsconfig.json)
+NLS <-- FS : jsonContent
+
+NLS -> JN : JsonNode.Parse(jsonContent,\nJsonCommentHandling.Skip)
+NLS <-- JN : rootNode
+
+NLS -> JN : rootNode["compilerOptions"]
+alt compilerOptions missing
+    NLS -> JN : Create new JsonObject
+    NLS -> JN : rootNode["compilerOptions"] = new
+end
+
+NLS -> JN : compilerOptions["paths"]
+alt paths missing
+    NLS -> JN : Create new JsonObject
+    NLS -> JN : compilerOptions["paths"] = new
+end
+
+NLS -> NLS : Calculate relative path\n(workspace -> librarySource)
+NLS -> NLS : Normalize separators to "/"
+
+NLS -> JN : paths[libraryName] =\n  [relativePath]
+NLS -> JN : paths[libraryName/*] =\n  [relativePath/*]
+
+NLS -> JN : rootNode.ToJsonString(\nWriteIndented=true)
+NLS <-- JN : updatedJson
+
+NLS -> FS : File.WriteAllText(\ntsconfig.json, updatedJson)
+
+[<-- NLS : tsconfig updated
+
+@enduml
