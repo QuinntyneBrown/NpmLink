@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NpmLink/NpmLink.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NpmLink.Tests/NpmLink.Tests.csproj" />
+  </Folder>
+</Solution>

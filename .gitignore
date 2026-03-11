@@ -1,0 +1,19 @@
+## .NET build artifacts
+bin/
+obj/
+
+## NuGet
+*.user
+*.suo
+.vs/
+packages/
+
+## Test results
+TestResults/
+
+## Rider / JetBrains
+.idea/
+*.sln.iml
+
+## VS Code
+.vscode/
