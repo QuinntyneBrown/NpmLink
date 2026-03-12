@@ -23,18 +23,15 @@ NpmLink provides three commands:
 1. Checks that `node_modules/<library>` is a symlink pointing to the expected library source.
 2. Checks that the workspace contains the expected TypeScript path mappings for that library.
 
-## Architecture Direction
+## Architecture
 
-The project is being aligned to a more idiomatic .NET architecture with clear boundaries:
+The project follows a layered .NET architecture with dependency injection:
 
-- **CLI layer**: command parsing, dependency injection, output rendering, exit code mapping.
-- **Application layer**: link, unlink, and verify orchestration through request/response handlers.
-- **Infrastructure layer**: npm process execution, workspace inspection, and `tsconfig` editing.
+- **CLI layer** (`Program.cs`): composition root using `Host.CreateApplicationBuilder`, command parsing via System.CommandLine, output rendering, exit code mapping.
+- **Application layer** (`NpmLinkService`): link, unlink, and verify orchestration. Returns structured `OperationResult` objects — no direct console IO.
+- **Infrastructure layer**: `NpmClient` (typed npm process invocation via `ProcessStartInfo.ArgumentList`), `TsConfigEditor` (JSONC-safe tsconfig parsing and mutation).
 
-The detailed target design and implementation sequencing are documented here:
-
-- [Implementation Fix Checklist](docs/implementation-fix-checklist.md)
-- [Detailed Design](docs/detailed-design/README.md)
+All services are registered in DI and resolved by command handlers. The `ITsConfigEditor` and `INpmClient` abstractions are fully testable via fakes.
 
 ## Prerequisites
 
@@ -92,13 +89,10 @@ npm-link unlink -w ./my-angular-app -l @my-org/my-lib -s ../my-lib
 
 ## Documentation
 
+- [L1 Requirements](docs/specs/L1.md)
+- [L2 Detailed Requirements](docs/specs/L2.md)
 - [Implementation Fix Checklist](docs/implementation-fix-checklist.md)
 - [Detailed Design Overview](docs/detailed-design/README.md)
-- [CLI Command Parsing Design](docs/detailed-design/01-cli-command-parsing.md)
-- [Application Orchestration Design](docs/detailed-design/02-npm-link-service.md)
-- [Process Execution Design](docs/detailed-design/03-process-execution.md)
-- [Validation Design](docs/detailed-design/04-validation.md)
-- [TSConfig Editing Design](docs/detailed-design/05-tsconfig-update.md)
 
 ## Tests
 
