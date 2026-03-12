@@ -44,6 +44,16 @@ All services are registered in DI and resolved by command handlers. The `ITsConf
 dotnet build
 ```
 
+## Install
+
+To install or update the `npm-link` global tool from source:
+
+```bash
+eng\scripts\install.bat
+```
+
+This packs the CLI project and installs (or updates) it as a global dotnet tool.
+
 ## Usage
 
 ### Link (default command)
