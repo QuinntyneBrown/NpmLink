@@ -5,106 +5,192 @@ namespace NpmLink.Cli.Services;
 
 public class NpmLinkService : INpmLinkService
 {
-    private readonly IProcessRunner _processRunner;
+    private readonly INpmClient _npmClient;
+    private readonly ITsConfigEditor _tsConfigEditor;
 
-    public NpmLinkService(IProcessRunner processRunner)
+    public NpmLinkService(INpmClient npmClient, ITsConfigEditor tsConfigEditor)
     {
-        _processRunner = processRunner;
+        _npmClient = npmClient;
+        _tsConfigEditor = tsConfigEditor;
     }
 
-    public async Task<int> LinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
+    public async Task<OperationResult> LinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
     {
         var resolvedWorkspacePath = Path.GetFullPath(workspacePath);
         var resolvedLibrarySourcePath = Path.GetFullPath(librarySourcePath);
+        var messages = new List<string>();
 
         if (!Directory.Exists(resolvedWorkspacePath))
-        {
-            Console.Error.WriteLine($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}");
 
         if (!Directory.Exists(resolvedLibrarySourcePath))
-        {
-            Console.Error.WriteLine($"Error: Library source path does not exist: {resolvedLibrarySourcePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: Library source path does not exist: {resolvedLibrarySourcePath}");
 
         if (!ValidateAngularWorkspace(resolvedWorkspacePath))
-        {
-            Console.Error.WriteLine($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}");
 
         if (!ValidateLibraryPackageJson(resolvedLibrarySourcePath, libraryName))
-        {
-            Console.Error.WriteLine($"Error: No package.json with name '{libraryName}' found in library source path: {resolvedLibrarySourcePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: No package.json with name '{libraryName}' found in library source path: {resolvedLibrarySourcePath}");
 
-        Console.WriteLine($"Step 1: Running 'npm link' in library source: {resolvedLibrarySourcePath}");
-        var (npmCommand, linkArgs, linkInWorkspaceArgs) = GetNpmCommands(libraryName);
-        var linkExitCode = await _processRunner.RunAsync(npmCommand, linkArgs, resolvedLibrarySourcePath, cancellationToken);
+        messages.Add($"Step 1: Running 'npm link' in library source: {resolvedLibrarySourcePath}");
+        var linkExitCode = await _npmClient.LinkGlobalAsync(resolvedLibrarySourcePath, cancellationToken);
         if (linkExitCode != 0)
         {
-            Console.Error.WriteLine("Error: 'npm link' in library source failed.");
-            return linkExitCode;
+            messages.Add("Error: 'npm link' in library source failed.");
+            return new OperationResult(linkExitCode, messages);
         }
 
-        Console.WriteLine($"Step 2: Running 'npm link {libraryName}' in Angular workspace: {resolvedWorkspacePath}");
-        var linkInWorkspaceExitCode = await _processRunner.RunAsync(npmCommand, linkInWorkspaceArgs, resolvedWorkspacePath, cancellationToken);
+        messages.Add($"Step 2: Running 'npm link {libraryName}' in Angular workspace: {resolvedWorkspacePath}");
+        var linkInWorkspaceExitCode = await _npmClient.LinkIntoWorkspaceAsync(libraryName, resolvedWorkspacePath, cancellationToken);
         if (linkInWorkspaceExitCode != 0)
         {
-            Console.Error.WriteLine($"Error: 'npm link {libraryName}' in Angular workspace failed.");
-            return linkInWorkspaceExitCode;
+            messages.Add($"Error: 'npm link {libraryName}' in Angular workspace failed.");
+            return new OperationResult(linkInWorkspaceExitCode, messages);
         }
 
-        Console.WriteLine("Step 3: Updating tsconfig.json paths for local development...");
-        UpdateTsconfigPaths(resolvedWorkspacePath, libraryName, resolvedLibrarySourcePath);
+        messages.Add("Step 3: Updating tsconfig.json paths for local development...");
+        var tsconfigResult = _tsConfigEditor.AddPaths(resolvedWorkspacePath, libraryName, resolvedLibrarySourcePath);
+        if (!tsconfigResult)
+        {
+            messages.Add("Error: Could not update tsconfig.json paths.");
+            return new OperationResult(1, messages);
+        }
 
-        Console.WriteLine($"Successfully linked '{libraryName}' to {resolvedLibrarySourcePath}");
-        return 0;
+        messages.Add($"Updated tsconfig.json with path mapping for '{libraryName}'.");
+        messages.Add($"Successfully linked '{libraryName}' to {resolvedLibrarySourcePath}");
+        return new OperationResult(0, messages);
     }
 
-    public async Task<int> UnlinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
+    public async Task<OperationResult> UnlinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
     {
         var resolvedWorkspacePath = Path.GetFullPath(workspacePath);
         var resolvedLibrarySourcePath = Path.GetFullPath(librarySourcePath);
+        var messages = new List<string>();
 
         if (!Directory.Exists(resolvedWorkspacePath))
-        {
-            Console.Error.WriteLine($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}");
 
         if (!ValidateAngularWorkspace(resolvedWorkspacePath))
-        {
-            Console.Error.WriteLine($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}");
-            return 1;
-        }
+            return OperationResult.Failure($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}");
 
-        var (npmCommand, unlinkArgs, unlinkInWorkspaceArgs) = GetNpmUnlinkCommands(libraryName);
+        // Item 3: Validate --source in UnlinkAsync
+        if (!Directory.Exists(resolvedLibrarySourcePath))
+            return OperationResult.Failure($"Error: Library source path does not exist: {resolvedLibrarySourcePath}");
 
-        Console.WriteLine($"Step 1: Running 'npm unlink {libraryName}' in Angular workspace: {resolvedWorkspacePath}");
-        var unlinkInWorkspaceExitCode = await _processRunner.RunAsync(npmCommand, unlinkInWorkspaceArgs, resolvedWorkspacePath, cancellationToken);
+        messages.Add($"Step 1: Running 'npm unlink {libraryName}' in Angular workspace: {resolvedWorkspacePath}");
+        var unlinkInWorkspaceExitCode = await _npmClient.UnlinkFromWorkspaceAsync(libraryName, resolvedWorkspacePath, cancellationToken);
         if (unlinkInWorkspaceExitCode != 0)
         {
-            Console.Error.WriteLine($"Error: 'npm unlink {libraryName}' in Angular workspace failed.");
-            return unlinkInWorkspaceExitCode;
+            messages.Add($"Error: 'npm unlink {libraryName}' in Angular workspace failed.");
+            return new OperationResult(unlinkInWorkspaceExitCode, messages);
         }
 
-        Console.WriteLine($"Step 2: Running 'npm unlink' in library source: {resolvedLibrarySourcePath}");
-        var unlinkExitCode = await _processRunner.RunAsync(npmCommand, unlinkArgs, resolvedLibrarySourcePath, cancellationToken);
+        messages.Add($"Step 2: Running 'npm unlink' in library source: {resolvedLibrarySourcePath}");
+        var unlinkExitCode = await _npmClient.UnlinkGlobalAsync(resolvedLibrarySourcePath, cancellationToken);
         if (unlinkExitCode != 0)
         {
-            Console.Error.WriteLine("Error: 'npm unlink' in library source failed.");
-            return unlinkExitCode;
+            messages.Add("Error: 'npm unlink' in library source failed.");
+            return new OperationResult(unlinkExitCode, messages);
         }
 
-        Console.WriteLine("Step 3: Removing tsconfig.json path mappings...");
-        RemoveTsconfigPaths(resolvedWorkspacePath, libraryName);
+        messages.Add("Step 3: Removing tsconfig.json path mappings...");
+        var tsconfigResult = _tsConfigEditor.RemovePaths(resolvedWorkspacePath, libraryName);
+        if (!tsconfigResult)
+        {
+            messages.Add("Error: Could not update tsconfig.json paths.");
+            return new OperationResult(1, messages);
+        }
 
-        Console.WriteLine($"Successfully unlinked '{libraryName}'");
-        return 0;
+        messages.Add($"Removed tsconfig.json path mappings for '{libraryName}'.");
+        messages.Add($"Successfully unlinked '{libraryName}'");
+        return new OperationResult(0, messages);
+    }
+
+    public Task<OperationResult> VerifyAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default)
+    {
+        var resolvedWorkspacePath = Path.GetFullPath(workspacePath);
+        var resolvedLibrarySourcePath = Path.GetFullPath(librarySourcePath);
+        var messages = new List<string>();
+
+        if (!Directory.Exists(resolvedWorkspacePath))
+            return Task.FromResult(OperationResult.Failure($"Error: Angular workspace path does not exist: {resolvedWorkspacePath}"));
+
+        if (!ValidateAngularWorkspace(resolvedWorkspacePath))
+            return Task.FromResult(OperationResult.Failure($"Error: No angular.json found in workspace path: {resolvedWorkspacePath}"));
+
+        var allPassed = true;
+
+        // Symlink check
+        var nodeModulesLibPath = Path.Combine(resolvedWorkspacePath, "node_modules", libraryName);
+        if (!Directory.Exists(nodeModulesLibPath))
+        {
+            messages.Add($"FAIL: Symlink not found at {nodeModulesLibPath}");
+            allPassed = false;
+        }
+        else
+        {
+            var dirInfo = new DirectoryInfo(nodeModulesLibPath);
+            if (dirInfo.LinkTarget is null)
+            {
+                messages.Add($"FAIL: {nodeModulesLibPath} exists but is not a symbolic link");
+                allPassed = false;
+            }
+            else
+            {
+                var resolvedTarget = Directory.ResolveLinkTarget(nodeModulesLibPath, returnFinalTarget: true);
+                var resolvedTargetPath = resolvedTarget is not null ? Path.GetFullPath(resolvedTarget.FullName) : null;
+                if (!string.Equals(resolvedTargetPath, resolvedLibrarySourcePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    messages.Add($"FAIL: Symlink target is '{resolvedTargetPath}' but expected '{resolvedLibrarySourcePath}'");
+                    allPassed = false;
+                }
+                else
+                {
+                    messages.Add($"PASS: Symlink exists and points to {resolvedLibrarySourcePath}");
+                }
+            }
+        }
+
+        // tsconfig check (Item 1: validate values too)
+        var (tsconfigExists, exactKeyMatch, wildcardKeyMatch, exactValueMatch, wildcardValueMatch) =
+            _tsConfigEditor.VerifyPaths(resolvedWorkspacePath, libraryName, resolvedLibrarySourcePath);
+
+        if (!tsconfigExists)
+        {
+            messages.Add("FAIL: tsconfig.json not found in workspace");
+            allPassed = false;
+        }
+        else
+        {
+            if (!exactKeyMatch)
+            {
+                messages.Add($"FAIL: tsconfig.json missing path mapping for '{libraryName}'");
+                allPassed = false;
+            }
+            else if (!exactValueMatch)
+            {
+                messages.Add($"FAIL: tsconfig.json path mapping for '{libraryName}' has wrong value");
+                allPassed = false;
+            }
+
+            if (!wildcardKeyMatch)
+            {
+                messages.Add($"FAIL: tsconfig.json missing path mapping for '{libraryName}/*'");
+                allPassed = false;
+            }
+            else if (!wildcardValueMatch)
+            {
+                messages.Add($"FAIL: tsconfig.json path mapping for '{libraryName}/*' has wrong value");
+                allPassed = false;
+            }
+
+            if (exactKeyMatch && exactValueMatch && wildcardKeyMatch && wildcardValueMatch)
+            {
+                messages.Add($"PASS: tsconfig.json contains correct path mappings for '{libraryName}'");
+            }
+        }
+
+        return Task.FromResult(new OperationResult(allPassed ? 0 : 1, messages));
     }
 
     private static bool ValidateAngularWorkspace(string workspacePath)
@@ -128,101 +214,6 @@ public class NpmLinkService : INpmLinkService
         catch
         {
             return false;
-        }
-    }
-
-    private static (string npmCommand, string linkArgs, string linkInWorkspaceArgs) GetNpmCommands(string libraryName)
-    {
-        var isWindows = OperatingSystem.IsWindows();
-        var npmCommand = isWindows ? "cmd" : "npm";
-        var linkArgs = isWindows ? "/c npm link" : "link";
-        var linkInWorkspaceArgs = isWindows ? $"/c npm link {libraryName}" : $"link {libraryName}";
-        return (npmCommand, linkArgs, linkInWorkspaceArgs);
-    }
-
-    private static (string npmCommand, string unlinkArgs, string unlinkInWorkspaceArgs) GetNpmUnlinkCommands(string libraryName)
-    {
-        var isWindows = OperatingSystem.IsWindows();
-        var npmCommand = isWindows ? "cmd" : "npm";
-        var unlinkArgs = isWindows ? "/c npm unlink" : "unlink";
-        var unlinkInWorkspaceArgs = isWindows ? $"/c npm unlink {libraryName}" : $"unlink {libraryName}";
-        return (npmCommand, unlinkArgs, unlinkInWorkspaceArgs);
-    }
-
-    private static void RemoveTsconfigPaths(string workspacePath, string libraryName)
-    {
-        var tsconfigPath = Path.Combine(workspacePath, "tsconfig.json");
-        if (!File.Exists(tsconfigPath))
-        {
-            Console.WriteLine("No tsconfig.json found in workspace root; skipping path mapping removal.");
-            return;
-        }
-
-        try
-        {
-            var content = File.ReadAllText(tsconfigPath);
-            var tsconfig = JsonNode.Parse(content, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
-
-            if (tsconfig is null)
-                return;
-
-            var paths = tsconfig["compilerOptions"]?["paths"]?.AsObject();
-            if (paths is null)
-                return;
-
-            paths.Remove(libraryName);
-            paths.Remove($"{libraryName}/*");
-
-            var updatedContent = tsconfig.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(tsconfigPath, updatedContent);
-            Console.WriteLine($"Removed tsconfig.json path mappings for '{libraryName}'.");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Warning: Could not update tsconfig.json paths: {ex.Message}");
-        }
-    }
-
-    private static void UpdateTsconfigPaths(string workspacePath, string libraryName, string librarySourcePath)
-    {
-        var tsconfigPath = Path.Combine(workspacePath, "tsconfig.json");
-        if (!File.Exists(tsconfigPath))
-        {
-            Console.WriteLine("No tsconfig.json found in workspace root; skipping path mapping update.");
-            return;
-        }
-
-        try
-        {
-            var content = File.ReadAllText(tsconfigPath);
-            var tsconfig = JsonNode.Parse(content, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
-
-            if (tsconfig is null)
-                return;
-
-            tsconfig["compilerOptions"] ??= new JsonObject();
-            var compilerOptions = tsconfig["compilerOptions"]!.AsObject();
-
-            compilerOptions["paths"] ??= new JsonObject();
-            var paths = compilerOptions["paths"]!.AsObject();
-
-            var relativeLibPath = Path.GetRelativePath(workspacePath, librarySourcePath).Replace('\\', '/');
-
-            var exactPathArray = new JsonArray();
-            exactPathArray.Add(JsonValue.Create(relativeLibPath));
-            paths[libraryName] = exactPathArray;
-
-            var wildcardPathArray = new JsonArray();
-            wildcardPathArray.Add(JsonValue.Create($"{relativeLibPath}/*"));
-            paths[$"{libraryName}/*"] = wildcardPathArray;
-
-            var updatedContent = tsconfig.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(tsconfigPath, updatedContent);
-            Console.WriteLine($"Updated tsconfig.json with path mapping for '{libraryName}'.");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Warning: Could not update tsconfig.json paths: {ex.Message}");
         }
     }
 }

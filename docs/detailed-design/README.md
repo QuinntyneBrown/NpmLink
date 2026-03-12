@@ -1,62 +1,62 @@
 # NpmLink - Detailed Design Documentation
 
-## Overview
+## Purpose
 
-NpmLink is a .NET 9 CLI tool that automates the process of linking a local npm library into an Angular workspace for local development and debugging. It eliminates manual steps by orchestrating three operations: registering the library globally via `npm link`, linking it into the workspace via `npm link <library>`, and updating `tsconfig.json` path mappings for TypeScript resolution.
+This folder describes the target architecture for the next round of NpmLink implementation work. It is intentionally aligned with the repository-level [implementation checklist](../implementation-fix-checklist.md) so an agent can move from design to code systematically.
 
-## Architecture
+## Target Architecture
 
+```text
+┌────────────────────────────────────────────────────────────┐
+│                         NpmLink.Cli                        │
+│   System.CommandLine, Generic Host, DI, result rendering  │
+└──────────────────────────────┬─────────────────────────────┘
+                               │
+                               ▼
+┌────────────────────────────────────────────────────────────┐
+│                    NpmLink.Application                     │
+│  Request models, validation, link/unlink/verify handlers  │
+│  Structured results with diagnostics and exit semantics    │
+└──────────────────────────────┬─────────────────────────────┘
+                               │
+                               ▼
+┌────────────────────────────────────────────────────────────┐
+│                   NpmLink.Infrastructure                   │
+│  npm client, process runner, workspace inspection,        │
+│  JSONC-safe tsconfig editor, filesystem interaction       │
+└────────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────┐
-│                   Program.cs                     │
-│              (System.CommandLine)                │
-│         Parses CLI args, creates services        │
-└─────────────────┬───────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────┐
-│              NpmLinkService                      │
-│           (INpmLinkService)                      │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │Validation│→ │npm link  │→ │tsconfig update│  │
-│  │  (4 checks) │(2 steps) │  │  (path maps)  │  │
-│  └──────────┘  └──────────┘  └───────────────┘  │
-└─────────────────┬───────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────┐
-│             ProcessRunner                        │
-│           (IProcessRunner)                       │
-│     Executes npm commands cross-platform         │
-└─────────────────────────────────────────────────┘
-```
+
+## Design Principles
+
+- Keep command parsing and console output in the CLI layer only.
+- Keep orchestration and policy decisions in the application layer.
+- Keep process execution, filesystem access, and `tsconfig` mutation in infrastructure.
+- Prefer typed requests and typed results over raw strings and raw `int` return values.
+- Fail deterministically when a present `tsconfig` file cannot be parsed or updated.
+- Verify actual `tsconfig` mapping values, not just key presence.
 
 ## Feature Design Documents
 
 | # | Feature | Document |
 |---|---------|----------|
-| 1 | [CLI Command Parsing](01-cli-command-parsing.md) | Entry point, argument parsing with System.CommandLine |
-| 2 | [Npm Link Service](02-npm-link-service.md) | Core orchestration of the linking workflow |
-| 3 | [Process Execution](03-process-execution.md) | External process management and cross-platform support |
-| 4 | [Validation](04-validation.md) | Input validation and fail-fast checks |
-| 5 | [TSConfig Path Update](05-tsconfig-update.md) | TypeScript configuration path mapping updates |
+| 1 | [CLI Command Parsing](01-cli-command-parsing.md) | Composition root, shared options, DI-based handlers |
+| 2 | [Application Orchestration](02-npm-link-service.md) | Link, unlink, and verify handlers with structured results |
+| 3 | [Process Execution](03-process-execution.md) | `INpmClient`, typed process requests, platform handling |
+| 4 | [Validation](04-validation.md) | Shared validation rules and diagnostics across commands |
+| 5 | [TSConfig Editing](05-tsconfig-update.md) | JSONC-safe read/write and exact mapping verification |
+
+## Implementation Tracking
+
+The design documents describe the end state. The implementation order, completion criteria, and verification steps are tracked in [implementation-fix-checklist.md](../implementation-fix-checklist.md).
 
 ## Diagrams
 
-All PlantUML source files and rendered PNGs are in the [diagrams/](diagrams/) directory.
-
-| Diagram | Class | Sequence |
-|---------|-------|----------|
-| CLI Command Parsing | [class](diagrams/cli-class.png) | [sequence](diagrams/cli-sequence.png) |
-| Npm Link Service | [class](diagrams/npm-link-service-class.png) | [sequence](diagrams/npm-link-service-sequence.png) |
-| Process Execution | [class](diagrams/process-runner-class.png) | [sequence](diagrams/process-runner-sequence.png) |
-| Validation | [class](diagrams/validation-class.png) | [sequence](diagrams/validation-sequence.png) |
-| TSConfig Update | [class](diagrams/tsconfig-class.png) | [sequence](diagrams/tsconfig-sequence.png) |
+The PlantUML source and rendered PNG files in [diagrams/](diagrams/) represent the earlier implementation baseline. They should be refreshed after the code has been refactored to match the target architecture described in these documents.
 
 ### Rendering Diagrams
 
-To re-render the PlantUML diagrams after changes:
+To re-render the PlantUML diagrams after updates:
 
 ```bash
 cd docs/detailed-design/diagrams
@@ -64,11 +64,3 @@ python render.py
 ```
 
 Requires the Python `plantuml` package (`pip install plantuml`). Diagrams are rendered via the PlantUML web service.
-
-## Key Design Patterns
-
-- **Dependency Injection** - `IProcessRunner` abstraction enables testing without real process execution.
-- **Fail-Fast Validation** - All inputs validated before any side effects occur.
-- **Strategy Pattern** - Cross-platform command handling (Windows `cmd /c` vs Unix direct).
-- **Graceful Degradation** - tsconfig update failure is non-fatal.
-- **Exit Code Propagation** - Process exit codes bubble up from npm through the service to the CLI.
