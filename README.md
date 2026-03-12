@@ -23,15 +23,39 @@ NpmLink provides three commands:
 1. Checks that `node_modules/<library>` is a symlink pointing to the expected library source.
 2. Checks that the workspace contains the expected TypeScript path mappings for that library.
 
-## Architecture
+## Current Code Organization
 
-The project follows a layered .NET architecture with dependency injection:
+The repository currently contains a single source project, `src/NpmLink.Cli`, organized into logical layers:
 
-- **CLI layer** (`Program.cs`): composition root using `Host.CreateApplicationBuilder`, command parsing via System.CommandLine, output rendering, exit code mapping.
-- **Application layer** (`NpmLinkService`): link, unlink, and verify orchestration. Returns structured `OperationResult` objects — no direct console IO.
-- **Infrastructure layer**: `NpmClient` (typed npm process invocation via `ProcessStartInfo.ArgumentList`), `TsConfigEditor` (JSONC-safe tsconfig parsing and mutation).
+- `Program.cs`: composition root using `Host.CreateApplicationBuilder`, command parsing, and process exit handling.
+- `Commands/`: one command per file plus shared command helpers.
+- `Services/`: orchestration, npm execution, `tsconfig` editing, service contracts, and result models.
 
-All services are registered in DI and resolved by command handlers. The `ITsConfigEditor` and `INpmClient` abstractions are fully testable via fakes.
+This is a layered design inside one project rather than separate physical projects.
+
+## Repository Layout
+
+| Path | Purpose |
+|---|---|
+| `src/NpmLink.Cli/` | Main CLI project |
+| `src/NpmLink.Cli/Commands/` | `Link`, `Unlink`, and `Verify` command definitions plus shared command helpers |
+| `src/NpmLink.Cli/Services/` | `NpmLinkService`, `NpmClient`, `TsConfigEditor`, interfaces, and `OperationResult` |
+| `tests/NpmLink.Cli.Tests/` | Unit tests and fakes such as `FakeNpmClient` |
+| `docs/specs/` | L1 and L2 requirements/specification documents |
+| `docs/detailed-design/` | Design notes and PlantUML-based architecture diagrams |
+| `eng/scripts/` | Helper scripts, including `install.bat` for local tool installation |
+| `NpmLink.slnx` | Solution entry point |
+
+## Architecture Notes
+
+The current implementation uses dependency injection and keeps responsibilities separated by concern:
+
+- Command files resolve `INpmLinkService` from DI and render `OperationResult` messages.
+- `NpmLinkService` orchestrates link, unlink, and verify workflows.
+- `NpmClient` handles typed npm invocation with `ProcessStartInfo.ArgumentList`.
+- `TsConfigEditor` handles JSONC-safe `tsconfig.json` parsing and mutation.
+
+The design documents under `docs/detailed-design/` describe the intended architecture direction and may be slightly ahead of the current physical project layout.
 
 ## Prerequisites
 
@@ -46,13 +70,13 @@ dotnet build
 
 ## Install
 
-To install or update the `npm-link` global tool from source:
+To install or update the `npm-link` global tool from source on Windows:
 
-```bash
+```bat
 eng\scripts\install.bat
 ```
 
-This packs the CLI project and installs (or updates) it as a global dotnet tool.
+This packs `src/NpmLink.Cli` and installs or updates it as a global .NET tool.
 
 ## Usage
 
@@ -81,7 +105,7 @@ All commands accept the same options:
 | Option | Alias | Description |
 |---|---|---|
 | `--workspace` | `-w` | Path to the Angular workspace (directory containing `angular.json`) |
-| `--library` | `-l` | Name of the library as it appears in `package.json` (e.g. `@my-org/my-lib`) |
+| `--library` | `-l` | Name of the library as it appears in `package.json` (for example `@my-org/my-lib`) |
 | `--source` | `-s` | Path to the library source project directory (where its `package.json` lives) |
 
 ### Examples
@@ -101,8 +125,12 @@ npm-link unlink -w ./my-angular-app -l @my-org/my-lib -s ../my-lib
 
 - [L1 Requirements](docs/specs/L1.md)
 - [L2 Detailed Requirements](docs/specs/L2.md)
-- [Implementation Fix Checklist](docs/implementation-fix-checklist.md)
 - [Detailed Design Overview](docs/detailed-design/README.md)
+- [CLI Command Parsing Design](docs/detailed-design/01-cli-command-parsing.md)
+- [Application Orchestration Design](docs/detailed-design/02-npm-link-service.md)
+- [Process Execution Design](docs/detailed-design/03-process-execution.md)
+- [Validation Design](docs/detailed-design/04-validation.md)
+- [TSConfig Editing Design](docs/detailed-design/05-tsconfig-update.md)
 
 ## Tests
 
