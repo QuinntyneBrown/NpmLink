@@ -2,65 +2,65 @@
 
 ## Purpose
 
-This folder describes the target architecture for the next round of NpmLink implementation work. It is intentionally aligned with the repository-level [implementation checklist](../implementation-fix-checklist.md) so an agent can move from design to code systematically.
+This folder describes the architecture of the NpmLink CLI tool. Each document covers one area of the design and reflects the current implementation.
 
-## Target Architecture
+## Architecture
+
+The project is a single .NET project (`NpmLink.Cli`) organized into logical layers by namespace and folder:
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
-│                         NpmLink.Cli                        │
-│   System.CommandLine, Generic Host, DI, result rendering  │
+│                      Program.cs                            │
+│   Host.CreateApplicationBuilder, System.CommandLine,       │
+│   DI registration, result rendering                        │
 └──────────────────────────────┬─────────────────────────────┘
                                │
                                ▼
 ┌────────────────────────────────────────────────────────────┐
-│                    NpmLink.Application                     │
-│  Request models, validation, link/unlink/verify handlers  │
-│  Structured results with diagnostics and exit semantics    │
+│                      Commands/                             │
+│   LinkCommand, UnlinkCommand, VerifyCommand,               │
+│   CommandOptions, CommandResultRenderer                     │
 └──────────────────────────────┬─────────────────────────────┘
                                │
                                ▼
 ┌────────────────────────────────────────────────────────────┐
-│                   NpmLink.Infrastructure                   │
-│  npm client, process runner, workspace inspection,        │
-│  JSONC-safe tsconfig editor, filesystem interaction       │
+│                      Services/                             │
+│   NpmLinkService (orchestration, validation)               │
+│   NpmClient (typed npm invocation)                         │
+│   TsConfigEditor (JSONC-safe tsconfig editing)             │
+│   OperationResult (structured result model)                │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ## Design Principles
 
-- Keep command parsing and console output in the CLI layer only.
-- Keep orchestration and policy decisions in the application layer.
-- Keep process execution, filesystem access, and `tsconfig` mutation in infrastructure.
-- Prefer typed requests and typed results over raw strings and raw `int` return values.
-- Fail deterministically when a present `tsconfig` file cannot be parsed or updated.
-- Verify actual `tsconfig` mapping values, not just key presence.
+- Command parsing and console output live in `Commands/` and `Program.cs` only.
+- `NpmLinkService` orchestrates workflows and validates inputs but does not write to the console or access the filesystem directly for tsconfig operations.
+- `NpmClient` owns all npm process execution with structured arguments.
+- `TsConfigEditor` owns all tsconfig.json file IO and JSONC parsing.
+- All service methods return `OperationResult` (exit code + messages) rather than raw `int`.
+- `tsconfig` parse/write failures on present files cause the operation to fail.
+- `verify` validates actual tsconfig mapping values, not just key presence.
 
 ## Feature Design Documents
 
 | # | Feature | Document |
 |---|---------|----------|
-| 1 | [CLI Command Parsing](01-cli-command-parsing.md) | Composition root, shared options, DI-based handlers |
-| 2 | [Application Orchestration](02-npm-link-service.md) | Link, unlink, and verify handlers with structured results |
-| 3 | [Process Execution](03-process-execution.md) | `INpmClient`, typed process requests, platform handling |
-| 4 | [Validation](04-validation.md) | Shared validation rules and diagnostics across commands |
-| 5 | [TSConfig Editing](05-tsconfig-update.md) | JSONC-safe read/write and exact mapping verification |
-
-## Implementation Tracking
-
-The design documents describe the end state. The implementation order, completion criteria, and verification steps are tracked in [implementation-fix-checklist.md](../implementation-fix-checklist.md).
+| 1 | [CLI Command Parsing](01-cli-command-parsing.md) | Composition root, shared options, DI-based commands |
+| 2 | [Application Orchestration](02-npm-link-service.md) | Link, unlink, and verify workflows with structured results |
+| 3 | [Process Execution](03-process-execution.md) | `INpmClient`, typed process arguments, platform handling |
+| 4 | [Validation](04-validation.md) | Input validation rules across commands |
+| 5 | [TSConfig Editing](05-tsconfig-update.md) | JSONC-safe read/write and value verification |
 
 ## Diagrams
 
-The PlantUML source and rendered PNG files in [diagrams/](diagrams/) represent the earlier implementation baseline. They should be refreshed after the code has been refactored to match the target architecture described in these documents.
+The PlantUML source and rendered PNG files in [diagrams/](diagrams/) represent an earlier implementation baseline. They should be refreshed to match the current architecture.
 
 ### Rendering Diagrams
-
-To re-render the PlantUML diagrams after updates:
 
 ```bash
 cd docs/detailed-design/diagrams
 python render.py
 ```
 
-Requires the Python `plantuml` package (`pip install plantuml`). Diagrams are rendered via the PlantUML web service.
+Requires the Python `plantuml` package (`pip install plantuml`).

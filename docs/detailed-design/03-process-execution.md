@@ -2,70 +2,65 @@
 
 ## Overview
 
-Process execution should be modeled as infrastructure, not embedded in application orchestration. The goal is to make npm invocation explicit, testable, and cross-platform without relying on shell string composition.
+npm process execution is handled by `NpmClient`, which implements `INpmClient`. It translates business-level npm operations into process invocations using `ProcessStartInfo.ArgumentList` for safe argument passing.
 
-## Target Abstractions
+## Abstraction
 
 ### `INpmClient`
 
-The application layer should depend on npm-specific operations, not raw processes:
+The application layer depends on npm-specific operations:
 
-- `LinkGlobalAsync`
-- `LinkIntoWorkspaceAsync`
-- `UnlinkFromWorkspaceAsync`
-- `UnlinkGlobalAsync`
+```csharp
+public interface INpmClient
+{
+    Task<int> LinkGlobalAsync(string workingDirectory, CancellationToken cancellationToken = default);
+    Task<int> LinkIntoWorkspaceAsync(string libraryName, string workingDirectory, CancellationToken cancellationToken = default);
+    Task<int> UnlinkFromWorkspaceAsync(string libraryName, string workingDirectory, CancellationToken cancellationToken = default);
+    Task<int> UnlinkGlobalAsync(string workingDirectory, CancellationToken cancellationToken = default);
+}
+```
 
-### `IProcessRunner`
+Each method returns the process exit code. The application layer interprets non-zero as failure.
 
-`IProcessRunner` should accept a structured process request instead of separate command and argument strings.
+## Implementation
 
-Suggested request model:
+`NpmClient` manages its own process execution directly — there is no separate `IProcessRunner` or `ProcessRequest` type in the execution path.
 
-- `FileName`
-- `WorkingDirectory`
-- `Arguments` as a collection
-- `CancellationToken`
+Each method calls a private `RunNpmAsync` helper that:
 
-### `ProcessRunner`
+1. Creates a `ProcessStartInfo` with `FileName` set to the platform-appropriate npm executable.
+2. Adds each argument individually via `ArgumentList.Add()`.
+3. Redirects stdout and stderr.
+4. Starts the process and waits for exit.
+5. Returns the exit code.
 
-`ProcessRunner` should:
+### Platform Handling
 
-- Create `ProcessStartInfo`.
-- Populate `ArgumentList` rather than a single concatenated argument string.
-- Redirect stdout and stderr.
-- Return a typed execution result or exit code.
-- Avoid writing to the console directly unless that output is routed through a dedicated output sink owned by the CLI.
+```csharp
+private static string NpmExecutable => OperatingSystem.IsWindows() ? "npm.cmd" : "npm";
+```
 
-## Platform Handling
+- Windows: invokes `npm.cmd` directly.
+- Linux/macOS: invokes `npm`.
+- No `cmd /c` wrapping.
 
-- On Windows, invoke `npm.cmd`.
-- On Linux and macOS, invoke `npm`.
-- Do not wrap npm invocations in `cmd /c`.
-- Keep platform resolution inside infrastructure so the application layer stays platform-agnostic.
+Platform resolution is encapsulated inside `NpmClient` so the application layer is platform-agnostic.
 
-## Behaviour
+### Console Output
 
-1. The application layer requests an npm operation through `INpmClient`.
-2. `NpmClient` translates that intent into a `ProcessRequest`.
-3. `ProcessRunner` launches the process with structured arguments.
-4. The runner waits for completion and captures output.
-5. The result is returned to `NpmClient`, then to the application layer.
+`NpmClient` currently forwards npm's stdout to `Console.WriteLine` and stderr to `Console.Error.WriteLine` via `OutputDataReceived` and `ErrorDataReceived` event handlers. This is the one exception to the "no console writes outside the CLI layer" principle — npm process output is streamed in real time rather than buffered.
 
 ## Test Strategy
 
-- Keep a fake process runner for unit tests.
-- Record the executable name, working directory, and argument list.
-- Add tests for scoped package names such as `@my-org/my-lib`.
-- Add tests for paths containing spaces.
-- Add tests that verify no shell wrapper is used.
+Tests use a `FakeNpmClient` that implements `INpmClient`, records invocations (method name, arguments, working directory), and returns configurable exit codes.
+
+Tests cover:
+- Scoped package names (e.g. `@my-org/my-lib`).
+- Paths containing spaces.
+- Invocation order and short-circuiting on failure.
 
 ## Design Decisions
 
-- **Typed arguments over command strings**: Prevents quoting bugs and reduces platform-specific branching.
-- **npm-specific abstraction**: The application layer should express intent in business terms, not process terms.
-- **Platform logic stays in infrastructure**: The handler code should not care whether the current platform uses `npm` or `npm.cmd`.
-- **Console output stays out of process infrastructure**: Process execution should report data, not decide how it is presented.
-
-## Diagram Note
-
-The current process diagrams in `diagrams/` reflect the earlier implementation and should be regenerated after the refactor is complete.
+- **No separate `IProcessRunner`/`ProcessRequest`**: `NpmClient` owns its process execution directly. The legacy `IProcessRunner` and `ProcessRunner` still exist in the codebase but are not used by the current architecture. `FakeNpmClient` replaces `FakeProcessRunner` for testing.
+- **`ArgumentList` over string concatenation**: Prevents quoting bugs with scoped packages and paths containing spaces.
+- **npm-specific abstraction**: The application layer expresses intent (`LinkGlobalAsync`) rather than process mechanics (`RunAsync("npm", "link")`).

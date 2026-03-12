@@ -2,101 +2,75 @@
 
 ## Overview
 
-The current single-service shape should be refactored into application-level handlers that orchestrate link, unlink, and verify workflows through narrow abstractions. The application layer should own business flow and failure policy, but not console output, file IO, or process execution details.
+`NpmLinkService` is the single orchestration service that implements `INpmLinkService`. It coordinates validation, npm operations, and tsconfig editing for the link, unlink, and verify workflows. It depends on `INpmClient` and `ITsConfigEditor` and returns `OperationResult` from every public method.
 
-## Core Use Cases
+## Interface
 
-### `LinkLibraryHandler`
-
-Responsibilities:
-
-- Validate the request.
-- Register the library globally with npm.
-- Link the library into the Angular workspace.
-- Update `tsconfig` path mappings.
-- Return a structured result with success/failure diagnostics.
-
-### `UnlinkLibraryHandler`
-
-Responsibilities:
-
-- Validate the request, including the source path if it is required for npm unlink.
-- Remove the workspace link.
-- Remove the global library link.
-- Remove `tsconfig` path mappings.
-- Return a structured result with success/failure diagnostics.
-
-### `VerifyLinkHandler`
-
-Responsibilities:
-
-- Validate the request.
-- Verify that `node_modules/<library>` is a symlink to the expected source path.
-- Verify that `tsconfig` contains the expected exact and wildcard mappings, including value correctness.
-- Return a structured result that lists all failures rather than stopping after the first verification problem.
-
-## Suggested Contracts
-
-| Type | Responsibility |
-|------|----------------|
-| `ILinkLibraryHandler` | Executes the link workflow |
-| `IUnlinkLibraryHandler` | Executes the unlink workflow |
-| `IVerifyLinkHandler` | Executes the verify workflow |
-| `IRequestValidator<TRequest>` | Validates requests before orchestration |
-| `INpmClient` | npm-specific operations |
-| `ITsConfigEditor` | Upsert, remove, and inspect path mappings |
-| `IWorkspaceInspector` | Checks workspace structure and symlink state |
+```csharp
+public interface INpmLinkService
+{
+    Task<OperationResult> LinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default);
+    Task<OperationResult> UnlinkAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default);
+    Task<OperationResult> VerifyAsync(string workspacePath, string libraryName, string librarySourcePath, CancellationToken cancellationToken = default);
+}
+```
 
 ## Result Model
 
-Application handlers should return a structured result rather than a raw exit code, for example:
+All methods return `OperationResult`:
 
-- `Succeeded`
-- `ExitCode`
-- `Diagnostics`
-- `Warnings`
+```csharp
+public record OperationResult(int ExitCode, List<string> Messages);
+```
 
-This keeps orchestration testable and leaves rendering decisions to the CLI layer.
+`OperationResult` includes static factory methods (`Success`, `Failure`) and an `AddMessage` helper. Messages are rendered by the CLI layer — the service never writes to the console.
 
-## Behaviour
+## Workflows
 
 ### Link
 
-1. Validate workspace path, source path, Angular workspace shape, and package identity.
-2. Invoke `INpmClient.LinkGlobalAsync`.
-3. Invoke `INpmClient.LinkIntoWorkspaceAsync`.
-4. Invoke `ITsConfigEditor.UpsertMappingsAsync`.
-5. Return success only if all required steps succeed.
+1. Resolve and validate workspace path (exists, contains `angular.json`).
+2. Resolve and validate library source path (exists, contains `package.json` with matching name).
+3. Call `INpmClient.LinkGlobalAsync` in the library source directory.
+4. Call `INpmClient.LinkIntoWorkspaceAsync` in the workspace directory.
+5. Call `ITsConfigEditor.AddPaths` to update tsconfig mappings.
+6. Return success only if all steps succeed.
 
 ### Unlink
 
-1. Validate workspace path and source path consistently with the link workflow.
-2. Invoke `INpmClient.UnlinkFromWorkspaceAsync`.
-3. Invoke `INpmClient.UnlinkGlobalAsync`.
-4. Invoke `ITsConfigEditor.RemoveMappingsAsync`.
-5. Return success only if all required steps succeed.
+1. Resolve and validate workspace path (exists, contains `angular.json`).
+2. Resolve and validate library source path (exists).
+3. Call `INpmClient.UnlinkFromWorkspaceAsync` in the workspace directory.
+4. Call `INpmClient.UnlinkGlobalAsync` in the library source directory.
+5. Call `ITsConfigEditor.RemovePaths` to clean up tsconfig mappings.
+6. Return success only if all steps succeed.
 
 ### Verify
 
-1. Validate the request.
-2. Inspect the symlink in `node_modules`.
-3. Inspect `tsconfig` mappings and compare both keys and values.
-4. Aggregate failures into a single result.
+1. Resolve and validate workspace path (exists, contains `angular.json`).
+2. Check `node_modules/<library>` symlink existence, type, and target.
+3. Call `ITsConfigEditor.VerifyPaths` to check both key presence and value correctness.
+4. Aggregate all check results — report every failure, not just the first one.
+5. Return exit code 0 only if all checks pass.
 
 ## Failure Policy
 
-- Validation failures should prevent any side effects.
-- npm failures should stop the workflow and propagate the relevant non-zero result.
-- If a `tsconfig` file is present and expected to be updated, parse/write failures should be treated as operation failures.
-- Verification should report all detected mismatches, not just the first one.
+- **Validation failures** return immediately with exit code 1 and prevent any side effects.
+- **npm failures** stop the workflow and propagate the non-zero exit code.
+- **tsconfig failures** (present file cannot be parsed or written) are treated as operation failures (exit code 1).
+- **Missing tsconfig** is not an error — the operation succeeds without updating paths.
+- **Verify** reports all detected mismatches rather than short-circuiting on the first failure.
+
+## Dependencies
+
+| Abstraction | Implementation | Purpose |
+|---|---|---|
+| `INpmClient` | `NpmClient` | npm link/unlink process execution |
+| `ITsConfigEditor` | `TsConfigEditor` | tsconfig.json reading, writing, and verification |
 
 ## Design Decisions
 
-- **No console writes in application code**: Console output belongs to the CLI layer.
-- **Use-case handlers over one large service**: Separate handlers make the workflows easier to reason about and test.
-- **Structured results over raw `int`**: The application layer should communicate intent and diagnostics, not just exit codes.
-- **Explicit failure policy**: `tsconfig` mutation is part of correctness, not a best-effort side effect.
-
-## Diagram Note
-
-The existing service diagrams in `diagrams/` reflect the earlier implementation and should be regenerated after the refactor is complete.
+- **Single service, not separate handlers**: The three workflows share validation logic and have similar structure, so a single `NpmLinkService` class is simpler than three separate handler classes.
+- **Inline validation**: Validation is performed directly in each method rather than through a separate `IRequestValidator<T>` abstraction, since the rules are straightforward and command-specific.
+- **No `IWorkspaceInspector`**: Symlink verification is done inline in `VerifyAsync` using `DirectoryInfo` and `Directory.ResolveLinkTarget`. A separate abstraction was not needed given the limited scope.
+- **No console writes**: All output is returned via `OperationResult.Messages`.

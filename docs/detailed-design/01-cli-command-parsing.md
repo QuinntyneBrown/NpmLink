@@ -2,74 +2,53 @@
 
 ## Overview
 
-The CLI layer should be a thin shell around the application layer. Its job is to parse arguments, resolve handlers through dependency injection, translate structured results into user-facing output, and return the correct process exit code.
+The CLI layer is a thin shell around the service layer. It parses arguments, resolves services through dependency injection, translates structured results into console output, and returns the process exit code.
 
-This design replaces direct construction of concrete services inside command actions with a real composition root based on the .NET Generic Host.
-
-## Responsibilities
+## Structure
 
 ### `Program.cs`
 
-`Program.cs` should become the composition root and own:
+`Program.cs` is the composition root. It:
 
-- `Host.CreateApplicationBuilder()` setup.
-- DI registration for application and infrastructure services.
-- Construction of the `RootCommand` and subcommands.
-- Parser configuration that disables response file handling for scoped package names such as `@my-org/my-lib`.
-- Invocation of the parser and propagation of the final exit code.
+- Calls `Host.CreateApplicationBuilder()` to set up the DI container.
+- Registers `INpmClient`, `ITsConfigEditor`, and `INpmLinkService` as singletons.
+- Delegates command construction to the static methods in `Commands/`.
+- Configures the parser to disable response file handling (so scoped package names like `@my-org/my-lib` are not misinterpreted).
+- Invokes the parser and propagates the exit code.
 
-### Command Definitions
+### `Commands/`
 
-Command definitions should:
+Each command is defined in its own file as a static class:
 
-- Define shared options once and reuse them across `link`, `unlink`, and `verify`.
-- Bind parsed values into request records rather than passing raw strings through multiple layers.
-- Resolve handler classes from DI rather than constructing services directly.
-
-### Command Handlers
-
-Each command should delegate to a dedicated handler, for example:
-
-- `LinkCommandHandler`
-- `UnlinkCommandHandler`
-- `VerifyCommandHandler`
-
-Each handler should:
-
-- Accept a typed request record.
-- Call the corresponding application service or use-case handler.
-- Render structured diagnostics returned by the application layer.
-- Map the final result to an exit code.
-
-## Suggested Types
-
-| Type | Responsibility |
+| File | Responsibility |
 |------|----------------|
-| `LinkLibraryRequest` | Parsed arguments for the link workflow |
-| `UnlinkLibraryRequest` | Parsed arguments for the unlink workflow |
-| `VerifyLinkRequest` | Parsed arguments for the verify workflow |
-| `OperationResult` | Success/failure state, exit code, and diagnostics |
-| `IResultRenderer` or CLI-local renderer | Converts structured results to console output |
+| `LinkCommand.cs` | Creates the `RootCommand` with link action |
+| `UnlinkCommand.cs` | Creates the `unlink` subcommand |
+| `VerifyCommand.cs` | Creates the `verify` subcommand |
+| `CommandOptions.cs` | Factory methods for the shared `--workspace`, `--library`, `--source` options |
+| `CommandResultRenderer.cs` | Renders `OperationResult` messages to stdout/stderr |
 
-## Behaviour
+Each command file follows the same pattern:
 
-1. The user invokes `npm-link`, `npm-link unlink`, or `npm-link verify`.
-2. `Program.cs` builds the host and registers dependencies.
-3. The root command and subcommands are created using shared option definitions.
-4. Response file handling is disabled so scoped package names are parsed correctly.
-5. `System.CommandLine` parses the arguments.
-6. The selected command binds the arguments into a request record.
-7. The command resolves its handler from DI.
-8. The handler calls the application layer and receives an `OperationResult`.
-9. The CLI renders diagnostics and returns the mapped exit code.
+1. Create option instances via `CommandOptions`.
+2. Build the `Command` (or `RootCommand`).
+3. Set an action that resolves `INpmLinkService` from the `IServiceProvider`, calls the appropriate method, renders the result via `CommandResultRenderer.Render()`, and returns the exit code.
+
+### `CommandResultRenderer`
+
+Routes messages to `Console.Error` when they start with `"Error:"` or `"FAIL:"`, and to `Console.WriteLine` otherwise. This is the only place in the codebase that writes to the console.
+
+## Shared Options
+
+Options are defined once in `CommandOptions` and instantiated per command (System.CommandLine requires separate option instances per command). The three shared options are:
+
+- `--workspace` (`-w`) — path to the Angular workspace
+- `--library` (`-l`) — library name as it appears in `package.json`
+- `--source` (`-s`) — path to the library source directory
 
 ## Design Decisions
 
-- **Thin CLI layer**: The CLI should not perform orchestration, validation, or infrastructure setup beyond dependency registration.
-- **DI-first command execution**: Commands should not construct concrete services like `NpmLinkService` or `ProcessRunner` directly.
-- **Shared option model**: Common options must be defined once so the command surface stays consistent across commands.
-- **Structured output boundary**: The CLI is the only layer that should write to the console.
-
-## Diagram Note
-
-The existing CLI diagrams in `diagrams/` reflect the earlier implementation and should be regenerated after the refactor is complete.
+- **No request records**: Arguments are passed as strings directly to `INpmLinkService` methods rather than through typed request objects. This keeps the layer count minimal for a CLI tool of this size.
+- **No separate handler classes**: Command actions resolve `INpmLinkService` directly — there are no intermediate `LinkCommandHandler`-style classes.
+- **DI-first**: Commands receive `IServiceProvider` and resolve services at invocation time, not at construction time.
+- **Structured output boundary**: The CLI layer is the only layer that writes to the console.

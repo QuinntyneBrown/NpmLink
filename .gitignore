@@ -17,3 +17,6 @@ TestResults/
 
 ## VS Code
 .vscode/
+
+## Local agent state
+.claude/

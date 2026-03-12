@@ -2,77 +2,45 @@
 
 ## Overview
 
-Validation should be centralized and reusable across `link`, `unlink`, and `verify`. The goal is to keep validation rules consistent, produce deterministic diagnostics, and prevent side effects when required preconditions are not met.
+Input validation is performed inline at the start of each `NpmLinkService` method. Each method resolves paths, checks preconditions, and returns an `OperationResult.Failure` immediately if any check fails — preventing side effects.
 
-## Validation Scope
-
-The validation layer should cover:
-
-- Workspace path resolution and existence.
-- Source path resolution and existence.
-- Angular workspace identification through `angular.json`.
-- Package identity validation through `package.json`.
-- Command-specific prerequisites where needed.
-
-## Suggested Abstractions
-
-| Type | Responsibility |
-|------|----------------|
-| `IRequestValidator<TRequest>` | Validates a request and returns diagnostics |
-| `LinkLibraryRequestValidator` | Validation rules for link |
-| `UnlinkLibraryRequestValidator` | Validation rules for unlink |
-| `VerifyLinkRequestValidator` | Validation rules for verify |
-| `ValidationResult` | Success/failure plus validation messages |
-
-## Command Rules
+## Validation Rules
 
 ### Link
 
-- Workspace directory must exist.
-- Source directory must exist.
-- Workspace must contain `angular.json`.
-- Source must contain `package.json`.
-- `package.json` name must match the requested library name.
+1. Resolve `workspacePath` and `librarySourcePath` to absolute paths via `Path.GetFullPath`.
+2. Workspace directory must exist.
+3. Library source directory must exist.
+4. Workspace must contain `angular.json`.
+5. Library source must contain `package.json` with a `name` field matching `libraryName`.
 
 ### Unlink
 
-- Workspace directory must exist.
-- Source directory must exist when the command needs to run `npm unlink` there.
-- Workspace must contain `angular.json`.
-- Package identity validation should be applied consistently if the source path is part of the unlink workflow.
+1. Resolve `workspacePath` and `librarySourcePath` to absolute paths.
+2. Workspace directory must exist.
+3. Workspace must contain `angular.json`.
+4. Library source directory must exist.
 
 ### Verify
 
-- Workspace directory must exist.
-- Source directory should exist so the expected symlink target can be validated meaningfully.
-- Workspace must contain `angular.json`.
-- The validator should prepare normalized absolute paths for downstream comparison logic.
+1. Resolve `workspacePath` and `librarySourcePath` to absolute paths.
+2. Workspace directory must exist.
+3. Workspace must contain `angular.json`.
 
-## Behaviour
+## Shared Helpers
 
-Validation should run before any side effects and return all actionable diagnostics required to explain why the command cannot proceed.
+Two private static methods in `NpmLinkService` handle reusable checks:
 
-Recommended flow:
+- `ValidateAngularWorkspace(path)` — checks for `angular.json`.
+- `ValidateLibraryPackageJson(path, name)` — checks for `package.json` with matching name.
 
-1. Normalize incoming paths.
-2. Validate directory existence.
-3. Validate workspace shape.
-4. Validate package identity where applicable.
-5. Return a `ValidationResult` to the application handler.
+## Error Reporting
 
-## Test Strategy
-
-- Unit test each validator independently.
-- Assert that failed validation prevents any npm invocation.
-- Add explicit unlink validation coverage for missing source path.
-- Add verification coverage for missing source path if verify depends on it.
+Each validation failure returns `OperationResult.Failure(message)` with a descriptive error message prefixed with `"Error:"`. The CLI layer routes these to stderr via `CommandResultRenderer`.
 
 ## Design Decisions
 
-- **Shared policy, command-specific rules**: Common validation should be reused, but command-specific requirements still need explicit validators.
-- **Deterministic diagnostics**: Validation should explain the real precondition failure instead of leaking lower-level process exceptions.
-- **No inline validation in orchestrators**: Handlers should consume validator results, not embed all validation logic themselves.
-
-## Diagram Note
-
-The current validation diagrams in `diagrams/` reflect the earlier implementation and should be regenerated after the refactor is complete.
+- **Inline validation**: Validation is performed directly in each service method rather than through a separate `IRequestValidator<T>` abstraction. The rules are straightforward and command-specific, so a separate validator layer would add indirection without meaningful benefit.
+- **No `ValidationResult` type**: Validation failures use the same `OperationResult` type as all other failures, keeping the result model simple.
+- **Early return**: Each validation check returns immediately on failure, preventing any npm or tsconfig side effects.
+- **Consistent source path validation**: Both `LinkAsync` and `UnlinkAsync` validate that the library source path exists before proceeding.
